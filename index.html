@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pandemic risk index</title>
+<style>
+  :root {
+    --bg: #ffffff; --card: #f6f5f1; --ink: #1a1a19; --muted: #6b6a64;
+    --hair: #e1e0d9; --danger: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1a1a19; --card: #26262410; --ink: #f2f2ec; --muted: #9a9a90;
+            --hair: #33332f; }
+    body { background: #141412; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+  .stamp { color: var(--muted); font-size: 13px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin: 20px 0 24px; }
+  .card { background: var(--card); border-radius: 10px; padding: 14px 16px; }
+  .card .lbl { font-size: 13px; color: var(--muted); }
+  .card .val { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .card .val.hot { color: var(--danger); }
+  #legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 12px;
+    font-size: 13px; color: var(--muted); }
+  #legend span { display: flex; align-items: center; gap: 6px; }
+  .chartbox { position: relative; width: 100%; height: 340px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 14px; }
+  .brow { display: grid; grid-template-columns: 20px 1fr 190px 44px; align-items: center;
+    gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--hair); }
+  .brow .rank { color: var(--muted); font-size: 13px; text-align: right; }
+  .brow .nm { font-size: 14px; }
+  .brow .surge { font-size: 11px; color: var(--danger); margin-left: 6px; }
+  .brow .lowconf { font-size: 11px; color: var(--muted); margin-left: 6px; font-style: italic; }
+  .brow .trans { font-size: 11px; color: var(--muted); margin-left: 6px; }
+  .bar { height: 8px; border-radius: 4px; background: var(--hair); overflow: hidden; display: flex; }
+  .bar .lit { background: #2a78d6; height: 100%; }
+  .bar .gen { background: #e34948; height: 100%; }
+  .brow .score { font-size: 15px; font-weight: 600; text-align: right; }
+  .blegend { font-size: 12px; color: var(--muted); margin: 8px 0 0; display: flex; gap: 16px; }
+  .blegend span { display: flex; align-items: center; gap: 5px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .empty { background: var(--card); border-radius: 10px; padding: 24px;
+    color: var(--muted); font-size: 14px; }
+  .disclaimer { font-size: 13px; line-height: 1.5; color: var(--muted);
+    background: rgba(208,59,59,0.07); border: 1px solid rgba(208,59,59,0.25);
+    border-radius: 8px; padding: 12px 14px; margin: 4px 0 22px; }
+  .disclaimer strong { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+    <h1>Pandemic risk index</h1>
+    <span class="stamp" id="stamp">—</span>
+  </div>
+  <p class="sub">감시 대상 pathogen의 상대적 경계 우선순위 추이 · 내 데이터 기반</p>
+
+  <div class="disclaimer">
+    <strong>⚠️ 프로토타입 · 공식 정보 아님.</strong>
+    개인이 학습용으로 만든 실험 도구입니다. 여기 표시되는 값은 <em>팬데믹 발생 확률이 아니라</em>
+    공개 문헌·유전체 신호를 합친 <em>상대적 "경계 우선순위"</em>일 뿐입니다.
+    공중보건 의사결정에는 WHO·CDC·질병관리청 등 공식 기관의 정보를 이용하세요.
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <h2 style="font-size:16px; font-weight:600; margin:8px 0 4px;">현재 경계 순위 <span style="font-weight:400; color:var(--muted); font-size:13px;">문헌 + 유전체 종합</span></h2>
+  <div id="board" style="margin:0 0 28px;"></div>
+
+  <h2 style="font-size:16px; font-weight:600; margin:8px 0 4px;">문헌 관심도 추이 <span style="font-weight:400; color:var(--muted); font-size:13px;">주별</span></h2>
+  <div id="legend"></div>
+  <div class="chartbox">
+    <canvas id="riskChart" role="img" aria-label="여러 pathogen의 주별 위험 순위 지수 라인 차트"></canvas>
+  </div>
+  <p class="note">위험 지수 = 논문 신호 + (예정: 유전체 특성 + 대응책 성숙도)를 합산한 0–100 상대 점수.
+    팬데믹 확률이 아니라 pathogen 간 경계 우선순위입니다.</p>
+</div>
+
+<script src="data.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+(function () {
+  var D = window.RISK_DATA || { weeks: [], series: [], paper_count: 0 };
+  var PALETTE = ['#e34948','#2a78d6','#eda100','#1baf7a','#4a3aa7','#e87ba4','#eb6834','#898781'];
+  var DASH = [[],[6,3],[2,2],[8,4],[4,4],[6,3,2,3],[1,3],[10,4]];
+
+  document.getElementById('stamp').textContent = '자동 갱신 · 마지막 빌드 ' + (D.generated_at || '');
+
+  var hot = D.series.filter(function (s) {
+    return s.data.length > 1 && s.data[s.data.length-1] > s.data[s.data.length-2];
+  }).length;
+  var cards = [
+    ['추적 중 pathogen', D.series.length, false],
+    ['이번 주 상승', hot, true],
+    ['수집 논문', D.paper_count || 0, false],
+    ['관측 주 수', D.weeks.length, false]
+  ];
+  document.getElementById('cards').innerHTML = cards.map(function (c) {
+    return '<div class="card"><div class="lbl">' + c[0] + '</div>' +
+           '<div class="val' + (c[2] && c[1] ? ' hot' : '') + '">' + c[1] + '</div></div>';
+  }).join('');
+
+  // 현재 경계 순위판 (문헌 + 유전체)
+  var board = D.board || [];
+  var boardEl = document.getElementById('board');
+  if (board.length) {
+    var maxC = Math.max.apply(null, board.map(function (b) { return b.combined; })) || 1;
+    boardEl.innerHTML = board.slice(0, 10).map(function (b, i) {
+      var w = 100 * b.combined / maxC;
+      var signal = 0.65 * b.lit + 0.35 * b.gen;
+      var litW = signal ? (100 * (0.65 * b.lit) / signal) : 0;
+      // 급증 배지는 배율이 높고 '동시에' 표본이 충분(신뢰도 높음)할 때만.
+      // 표본이 적으면(예: 8건 배치 등록) 요란한 배지 대신 조용한 회색 주석.
+      var surge = '';
+      if (b.surge >= 1.3 && b.confidence >= 0.5) {
+        surge = '<span class="surge">유전체 급증 ' + b.surge + '× · ' + b.recent_seqs + '건</span>';
+      } else if (b.surge >= 1.3) {
+        surge = '<span class="lowconf">유전체 ' + b.surge + '× (표본 적음 ' + b.recent_seqs + '건)</span>';
+      }
+      var tval = (typeof b.transmissibility === 'number') ? b.transmissibility.toFixed(2) : '—';
+      return '<div class="brow"><span class="rank">' + (i + 1) + '</span>' +
+        '<span class="nm">' + b.name + surge +
+          '<span class="trans">전파력 ' + tval + '</span></span>' +
+        '<span class="bar" style="width:' + w.toFixed(0) + '%">' +
+          '<span class="lit" style="width:' + litW.toFixed(0) + '%"></span>' +
+          '<span class="gen" style="flex:1"></span></span>' +
+        '<span class="score">' + b.combined + '</span></div>';
+    }).join('') +
+    '<div class="blegend"><span><span class="sw" style="background:#2a78d6"></span>문헌 신호</span>' +
+    '<span><span class="sw" style="background:#e34948"></span>유전체 신호</span>' +
+    '<span>× 전파력 = 지속 사람간 전파 상한</span></div>';
+  } else {
+    boardEl.innerHTML = '<div class="empty" style="padding:14px">순위판 데이터가 없습니다.</div>';
+  }
+
+  if (!D.series.length) {
+    document.querySelector('.chartbox').outerHTML =
+      '<div class="empty">아직 표시할 신호가 없습니다. 먼저 <code>python run.py</code>로 데이터를 수집한 뒤 <code>python web/build.py</code>를 실행하세요.</div>';
+    return;
+  }
+
+  var legend = document.getElementById('legend');
+  D.series.forEach(function (s, i) {
+    var c = PALETTE[i % PALETTE.length];
+    var solid = DASH[i % DASH.length].length === 0;
+    var el = document.createElement('span');
+    el.innerHTML = '<span style="width:16px; height:0; border-top:3px ' +
+      (solid ? 'solid' : 'dashed') + ' ' + c + ';"></span>' + s.name +
+      ' <b style="color:var(--ink)">' + s.data[s.data.length-1] + '</b>';
+    legend.appendChild(el);
+  });
+
+  // 주 라벨을 월/일로 축약
+  var labels = D.weeks.map(function (w) { var p = w.split('-'); return p[1] + '/' + p[2]; });
+
+  new Chart(document.getElementById('riskChart'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: D.series.map(function (s, i) {
+        return {
+          label: s.name, data: s.data,
+          borderColor: PALETTE[i % PALETTE.length],
+          backgroundColor: PALETTE[i % PALETTE.length],
+          borderDash: DASH[i % DASH.length],
+          borderWidth: i === 0 ? 3 : 2,
+          pointRadius: 0, pointHoverRadius: 5, tension: 0.3
+        };
+      })
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + Math.round(c.parsed.y); } } }
+      },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: 'rgba(128,128,128,0.15)' },
+             ticks: { font: { size: 11 } }, title: { display: true, text: 'risk index' } },
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>
